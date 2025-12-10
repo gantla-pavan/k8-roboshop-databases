@@ -1,131 +1,74 @@
-# ------------------------------------
-# 1. Namespace
-# ------------------------------------
+
+# service, headless service, statefulset, pvc
 apiVersion: v1
-kind: Namespace
+kind: Service
 metadata:
-  name: roboshop
-  labels:
-    project: roboshop
----
-# ------------------------------------
-# 2. RabbitMQ Credentials Secret
-# ------------------------------------
-apiVersion: v1
-kind: Secret
-metadata:
-  name: rabbitmq-secret
+  name: rabbitmq
   namespace: roboshop
-  labels:
+spec:
+  selector:
     project: roboshop
-type: Opaque
-data:
-  username: cm9ib3Nob3A=        # roboshop
-  password: cm9ib3Nob3AxMjM=    # roboshop123
+    component: rabbitmq
+    tier: db
+  ports:
+    - protocol: TCP
+      port: 5672 # service port
+      targetPort: 5672 # container port
 ---
-# ------------------------------------
-# 3. Headless Service
-# ------------------------------------
 apiVersion: v1
 kind: Service
 metadata:
   name: rabbitmq-headless
   namespace: roboshop
-  labels:
-    app: rabbitmq
-    project: roboshop
 spec:
   clusterIP: None
   selector:
-    app: rabbitmq
     project: roboshop
+    component: rabbitmq
+    tier: db
   ports:
-    - name: amqp
-      port: 5672
-      targetPort: 5672
-    - name: management
-      port: 15672
-      targetPort: 15672
+    - protocol: TCP
+      port: 5672 # service port
+      targetPort: 5672 # container port
 ---
-# ------------------------------------
-# 4. ClusterIP Service (client access)
-# ------------------------------------
-apiVersion: v1
-kind: Service
-metadata:
-  name: rabbitmq
-  namespace: roboshop
-  labels:
-    app: rabbitmq
-    project: roboshop
-spec:
-  type: ClusterIP
-  selector:
-    app: rabbitmq
-    project: roboshop
-  ports:
-    - name: amqp
-      port: 5672
-      targetPort: 5672
-    - name: management
-      port: 15672
-      targetPort: 15672
----
-# ------------------------------------
-# 5. StatefulSet
-# ------------------------------------
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: rabbitmq
   namespace: roboshop
-  labels:
-    app: rabbitmq
-    project: roboshop
 spec:
-  serviceName: rabbitmq-headless
-  replicas: 1
   selector:
     matchLabels:
-      app: rabbitmq
       project: roboshop
+      component: rabbitmq
+      tier: db
+  serviceName: "rabbitmq-headless" # this should be head less service name
+  replicas: 2 # by default is 1
   template:
     metadata:
       labels:
-        app: rabbitmq
         project: roboshop
+        component: rabbitmq
+        tier: db
     spec:
       containers:
       - name: rabbitmq
-        image: rabbitmq:3.12-management
+        image: rabbitmq:3
+        volumeMounts:
+        - name: rabbitmq
+          mountPath: /var/lib/rabbitmq
         env:
         - name: RABBITMQ_DEFAULT_USER
-          valueFrom:
-            secretKeyRef:
-              name: rabbitmq-secret
-              key: username
+          value: roboshop
         - name: RABBITMQ_DEFAULT_PASS
-          valueFrom:
-            secretKeyRef:
-              name: rabbitmq-secret
-              key: password
-        ports:
-          - containerPort: 5672
-            name: amqp
-          - containerPort: 15672
-            name: management
-        volumeMounts:
-          - name: rabbitmq-storage
-            mountPath: /var/lib/rabbitmq
+          value: roboshop123
+  # This is PVC
   volumeClaimTemplates:
   - metadata:
-      name: rabbitmq-storage
-      labels:
-        project: roboshop
+      name: rabbitmq
     spec:
-      accessModes:
-        - ReadWriteOnce
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "roboshop-ebs"
       resources:
         requests:
           storage: 1Gi
-      storageClassName: roboshop-ebs
