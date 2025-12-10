@@ -1,0 +1,131 @@
+# ------------------------------------
+# 1. Namespace
+# ------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: roboshop
+  labels:
+    project: roboshop
+---
+# ------------------------------------
+# 2. RabbitMQ Credentials Secret
+# ------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-secret
+  namespace: roboshop
+  labels:
+    project: roboshop
+type: Opaque
+data:
+  username: cm9ib3Nob3A=        # roboshop
+  password: cm9ib3Nob3AxMjM=    # roboshop123
+---
+# ------------------------------------
+# 3. Headless Service
+# ------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-headless
+  namespace: roboshop
+  labels:
+    app: rabbitmq
+    project: roboshop
+spec:
+  clusterIP: None
+  selector:
+    app: rabbitmq
+    project: roboshop
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672
+---
+# ------------------------------------
+# 4. ClusterIP Service (client access)
+# ------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: roboshop
+  labels:
+    app: rabbitmq
+    project: roboshop
+spec:
+  type: ClusterIP
+  selector:
+    app: rabbitmq
+    project: roboshop
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672
+---
+# ------------------------------------
+# 5. StatefulSet
+# ------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: roboshop
+  labels:
+    app: rabbitmq
+    project: roboshop
+spec:
+  serviceName: rabbitmq-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+      project: roboshop
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+        project: roboshop
+    spec:
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3.12-management
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: username
+        - name: RABBITMQ_DEFAULT_PASS
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-secret
+              key: password
+        ports:
+          - containerPort: 5672
+            name: amqp
+          - containerPort: 15672
+            name: management
+        volumeMounts:
+          - name: rabbitmq-storage
+            mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-storage
+      labels:
+        project: roboshop
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+      storageClassName: gp3

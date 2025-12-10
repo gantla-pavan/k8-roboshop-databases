@@ -1,117 +1,86 @@
-# ------------------------------------
-# 1. Namespace
-# ------------------------------------
+
 apiVersion: v1
-kind: Namespace
+kind: ConfigMap
 metadata:
-  name: roboshop
-  labels:
-    project: roboshop
----
-# ------------------------------------
-# 2. Secret for MySQL Root Password
-# ------------------------------------
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mysql-secret
+  name: mysql
   namespace: roboshop
-  labels:
-    project: roboshop
-type: Opaque
 data:
-  # root password: roboshop123
-  MYSQL_ROOT_PASSWORD: cm9ib3Nob3AxMjM=
+  my.cnf: |
+    [mysqld]
+    innodb_redo_log_capacity = 2G
 ---
-# ------------------------------------
-# 3. Headless Service
-# ------------------------------------
+# service, headless service, statefulset, pvc
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: roboshop
+spec:
+  selector:
+    project: roboshop
+    component: mysql
+    tier: db
+  ports:
+    - protocol: TCP
+      port: 3306 # service port
+      targetPort: 3306 # container port
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-headless
   namespace: roboshop
-  labels:
-    app: mysql
-    project: roboshop
 spec:
   clusterIP: None
   selector:
-    app: mysql
     project: roboshop
+    component: mysql
+    tier: db
   ports:
-    - name: mysql
-      port: 3306
-      targetPort: 3306
+    - protocol: TCP
+      port: 3306 # service port
+      targetPort: 3306 # container port
 ---
-# ------------------------------------
-# 4. ClusterIP Service
-# ------------------------------------
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql
-  namespace: roboshop
-  labels:
-    app: mysql
-    project: roboshop
-spec:
-  type: ClusterIP
-  selector:
-    app: mysql
-    project: roboshop
-  ports:
-    - name: mysql
-      port: 3306
-      targetPort: 3306
----
-# ------------------------------------
-# 5. StatefulSet
-# ------------------------------------
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mysql
   namespace: roboshop
-  labels:
-    app: mysql
-    project: roboshop
 spec:
-  serviceName: mysql-headless
-  replicas: 1
   selector:
     matchLabels:
-      app: mysql
       project: roboshop
+      component: mysql
+      tier: db
+  serviceName: "mysql-headless" # this should be head less service name
+  replicas: 2 # by default is 1
   template:
     metadata:
       labels:
-        app: mysql
         project: roboshop
+        component: mysql
+        tier: db
     spec:
       containers:
       - name: mysql
-        image: mysql:8.0
-        ports:
-        - containerPort: 3306
-        env:
-        - name: MYSQL_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_ROOT_PASSWORD
+        image: joindevops/mysql:v1
         volumeMounts:
-        - name: mysql-storage
-          mountPath: /var/lib/mysql
+        - name: mysql
+          mountPath: /data/db
+        - name: mysql-config
+          mountPath: /etc/mysql/conf.d/my.cnf
+          subPath: my.cnf
+      volumes:
+        - name: mysql-config
+          configMap:
+            name: mysql
+  # This is PVC
   volumeClaimTemplates:
   - metadata:
-      name: mysql-storage
-      labels:
-        project: roboshop
+      name: mysql
     spec:
-      accessModes:
-        - ReadWriteOnce
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "roboshop-ebs"
       resources:
         requests:
-          storage: 5Gi
-      storageClassName: gp3
+          storage: 1Gi
